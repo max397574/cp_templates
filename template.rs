@@ -1,4 +1,7 @@
 // TODO: Link
+
+// this template and prewritten code here:
+// https://github.com/max397574/cp_templates
 #![allow(unused_imports)]
 #![allow(dead_code)]
 fn solve(wr: &mut Writer<Stdout>, r: &mut Reader<BufReader<Stdin>>) {
