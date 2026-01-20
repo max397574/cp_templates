@@ -4,13 +4,13 @@
 // https://github.com/max397574/cp_templates
 #![allow(unused_imports)]
 #![allow(dead_code)]
-fn solve(wr: &mut Writer<Stdout>, r: &mut Reader<BufReader<Stdin>>) {
+fn solve(wr: &mut Writer<Stdout>, r: &mut Reader) {
     let n: usize = r.r();
     writeln!(wr.buf, "{n}").unwrap();
 }
 
 fn main() {
-    let mut r = Reader::new(BufReader::new(std::io::stdin()));
+    let mut r = Reader::new(std::io::stdin());
     let mut wr = Writer::new(std::io::stdout());
 
     #[cfg(debug_assertions)]
@@ -57,23 +57,23 @@ mod writer {
 
 use reader::*;
 mod reader {
-    use std::io::{self, BufRead};
+    use std::io::{self, BufRead, Read, Stdin};
 
-    pub struct Reader<R: BufRead> {
-        pub reader: R,
+    pub struct Reader {
+        pub input: Stdin,
         pub current_line: String,
         pub offset: usize,
     }
 
-    impl<R: BufRead> Reader<R> {
+    impl Reader {
         #[inline]
-        pub fn new(mut reader: R) -> Self {
+        pub fn new(input: Stdin) -> Self {
             let mut buf = String::new();
-            reader
+            input
                 .read_line(&mut buf)
                 .expect("Couldn't read anything when creating new Reader");
             Reader {
-                reader,
+                input,
                 current_line: buf,
                 offset: 0,
             }
@@ -82,7 +82,7 @@ mod reader {
         #[inline]
         pub fn new_line(&mut self) -> io::Result<()> {
             self.current_line.clear();
-            self.reader.read_line(&mut self.current_line)?;
+            self.input.read_line(&mut self.current_line)?;
             self.offset = 0;
             Ok(())
         }
@@ -109,8 +109,8 @@ mod reader {
         }
 
         #[inline]
-        pub fn rw(&mut self) -> &str {
-            self.read_next_word().unwrap()
+        pub fn rw(&mut self) -> String {
+            self.read_next_word().unwrap().to_string()
         }
 
         #[inline]
@@ -143,7 +143,7 @@ mod read_from {
     use super::reader::*;
 
     pub trait ReadFrom<'a, O> {
-        fn read_from<R: BufRead>(reader: &'a mut Reader<R>, options: O) -> Self;
+        fn read_from(reader: &'a mut Reader, options: O) -> Self;
     }
 
     macro_rules! impl_readform_simple {
@@ -151,7 +151,7 @@ mod read_from {
         $(
             impl<'a> ReadFrom<'a, ()> for $t {
                 #[inline]
-                fn read_from<R: BufRead>(reader: &'a mut Reader<R>, (): ()) -> Self {
+                fn read_from(reader: &'a mut Reader, (): ()) -> Self {
                     let word = reader.read_next_word().expect("No new word found");
                     FromStr::from_str(word).expect("Failed to Parse")
                 }
@@ -169,7 +169,7 @@ mod read_from {
 
     impl<'a> ReadFrom<'a, ()> for &'a str {
         #[inline]
-        fn read_from<R: BufRead>(reader: &'a mut Reader<R>, (): ()) -> Self {
+        fn read_from(reader: &'a mut Reader, (): ()) -> Self {
             reader.read_next_word().unwrap()
         }
     }
@@ -179,61 +179,29 @@ mod read_from {
         T: for<'b> ReadFrom<'b, ()>,
     {
         #[inline]
-        fn read_from<R: BufRead>(reader: &'a mut Reader<R>, len: usize) -> Self {
+        fn read_from(reader: &'a mut Reader, len: usize) -> Self {
             repeat_with(|| T::read_from(reader, ())).take(len).collect()
         }
     }
 
     pub trait ReadExt {
-        fn read<'a, T: ReadFrom<'a, ()>>(&'a mut self) -> T;
+        fn r<'a, T: ReadFrom<'a, ()>>(&'a mut self) -> T;
 
-        fn read_vec<T: for<'b> ReadFrom<'b, usize>>(&mut self, len: usize) -> T;
+        fn rv<T: for<'b> ReadFrom<'b, usize>>(&mut self, len: usize) -> T;
 
-        fn read_vec2d<T: for<'b> ReadFrom<'b, ()>>(
-            &mut self,
-            dimensions: (usize, usize),
-        ) -> Vec<Vec<T>>;
-
-        fn read_iter<T: for<'b> ReadFrom<'b, ()>>(&mut self, len: usize)
-        -> impl Iterator<Item = T>;
-
-        fn r<'a, T: ReadFrom<'a, ()>>(&'a mut self) -> T {
-            self.read()
-        }
-
-        fn rv<T: for<'b> ReadFrom<'b, usize>>(&mut self, len: usize) -> T {
-            self.read_vec(len)
-        }
+        fn ri<T: for<'b> ReadFrom<'b, ()>>(&mut self, len: usize) -> impl Iterator<Item = T>;
     }
 
-    impl<R: BufRead> ReadExt for Reader<R> {
-        fn read<'a, T: ReadFrom<'a, ()>>(&'a mut self) -> T {
+    impl ReadExt for Reader {
+        fn r<'a, T: ReadFrom<'a, ()>>(&'a mut self) -> T {
             T::read_from(self, ())
         }
 
-        fn read_vec<T: for<'b> ReadFrom<'b, usize>>(&mut self, len: usize) -> T {
+        fn rv<T: for<'b> ReadFrom<'b, usize>>(&mut self, len: usize) -> T {
             T::read_from(self, len)
         }
 
-        fn read_vec2d<T: for<'b> ReadFrom<'b, ()>>(
-            &mut self,
-            dimensions: (usize, usize),
-        ) -> Vec<Vec<T>> {
-            let mut top = Vec::with_capacity(dimensions.0);
-            top.iter_mut().take(dimensions.0).for_each(|loc| {
-                let mut vector = Vec::with_capacity(dimensions.1);
-                vector.iter_mut().take(dimensions.1).for_each(|ele| {
-                    *ele = T::read_from(self, ());
-                });
-                *loc = vector;
-            });
-            top
-        }
-
-        fn read_iter<T: for<'b> ReadFrom<'b, ()>>(
-            &mut self,
-            len: usize,
-        ) -> impl Iterator<Item = T> {
+        fn ri<T: for<'b> ReadFrom<'b, ()>>(&mut self, len: usize) -> impl Iterator<Item = T> {
             repeat_with(move || T::read_from(self, ())).take(len)
         }
     }
@@ -243,7 +211,7 @@ mod read_from {
         V: for<'b> ReadFrom<'b, ()>,
         T: for<'b> ReadFrom<'b, ()>,
     {
-        fn read_from<R: BufRead>(reader: &'a mut Reader<R>, (): ()) -> Self {
+        fn read_from(reader: &'a mut Reader, (): ()) -> Self {
             (V::read_from(reader, ()), T::read_from(reader, ()))
         }
     }
@@ -254,7 +222,7 @@ mod read_from {
         T: for<'b> ReadFrom<'b, ()> + Default + Copy,
         U: for<'b> ReadFrom<'b, ()> + Default + Copy,
     {
-        fn read_from<R: BufRead>(reader: &mut Reader<R>, (): ()) -> Self {
+        fn read_from(reader: &mut Reader, (): ()) -> Self {
             (
                 V::read_from(reader, ()),
                 T::read_from(reader, ()),
@@ -267,7 +235,7 @@ mod read_from {
     where
         T: for<'b> ReadFrom<'b, ()> + Default + Copy,
     {
-        fn read_from<R: BufRead>(reader: &'a mut Reader<R>, (): ()) -> Self {
+        fn read_from(reader: &'a mut Reader, (): ()) -> Self {
             array::from_fn(|_| T::read_from(reader, ()))
         }
     }
